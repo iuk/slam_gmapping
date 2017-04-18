@@ -63,6 +63,7 @@ class SlamGMapping
     GMapping::RangeSensor* gsp_laser_;
     // The angles in the laser, going from -x to x (adjustment is made to get the laser between
     // symmetrical bounds as that's what gmapping expects)
+    // 储存 数据数组 每一个成员数据 对应的角度
     std::vector<double> laser_angles_;
     // The pose, in the original laser frame, of the corresponding centered laser with z facing up
     tf::Stamped<tf::Pose> centered_laser_pose_;

@@ -6,7 +6,7 @@
  * COMMONS PUBLIC LICENSE ("CCPL" OR "LICENSE"). THE WORK IS PROTECTED BY
  * COPYRIGHT AND/OR OTHER APPLICABLE LAW. ANY USE OF THE WORK OTHER THAN AS
  * AUTHORIZED UNDER THIS LICENSE OR COPYRIGHT LAW IS PROHIBITED.
- * 
+ *
  * BY EXERCISING ANY RIGHTS TO THE WORK PROVIDED HERE, YOU ACCEPT AND AGREE TO
  * BE BOUND BY THE TERMS OF THIS LICENSE. THE LICENSOR GRANTS YOU THE RIGHTS
  * CONTAINED HERE IN CONSIDERATION OF YOUR ACCEPTANCE OF SUCH TERMS AND
@@ -35,7 +35,7 @@ written to a file using e.g.
 @section topic ROS topics
 
 Subscribes to (name/type):
-- @b "scan"/<a href="../../sensor_msgs/html/classstd__msgs_1_1LaserScan.html">sensor_msgs/LaserScan</a> : data from a laser range scanner 
+- @b "scan"/<a href="../../sensor_msgs/html/classstd__msgs_1_1LaserScan.html">sensor_msgs/LaserScan</a> : data from a laser range scanner
 - @b "/tf": odometry from the robot
 
 
@@ -168,9 +168,9 @@ void SlamGMapping::init()
 
   got_first_scan_ = false;
   got_map_ = false;
-  
 
-  
+
+
   // Parameters used by our GMapping wrapper
   if(!private_nh_.getParam("throttle_scans", throttle_scans_))
     throttle_scans_ = 1;
@@ -187,7 +187,7 @@ void SlamGMapping::init()
   if(!private_nh_.getParam("map_update_interval", tmp))
     tmp = 5.0;
   map_update_interval_.fromSec(tmp);
-  
+
   // Parameters used by GMapping itself
   maxUrange_ = 0.0;  maxRange_ = 0.0; // preliminary default, will be set in initMapper()
   if(!private_nh_.getParam("minimumScore", minimum_score_))
@@ -246,7 +246,7 @@ void SlamGMapping::init()
     lasamplerange_ = 0.005;
   if(!private_nh_.getParam("lasamplestep", lasamplestep_))
     lasamplestep_ = 0.005;
-    
+
   if(!private_nh_.getParam("tf_delay", tf_delay_))
     tf_delay_ = transform_publish_period_;
 
@@ -274,10 +274,10 @@ void SlamGMapping::startReplay(const std::string & bag_fname, std::string scan_t
   sst_ = node_.advertise<nav_msgs::OccupancyGrid>("map", 1, true);
   sstm_ = node_.advertise<nav_msgs::MapMetaData>("map_metadata", 1, true);
   ss_ = node_.advertiseService("dynamic_map", &SlamGMapping::mapCallback, this);
-  
+
   rosbag::Bag bag;
   bag.open(bag_fname, rosbag::bagmode::Read);
-  
+
   std::vector<std::string> topics;
   topics.push_back(std::string("/tf"));
   topics.push_back(scan_topic);
@@ -310,7 +310,7 @@ void SlamGMapping::startReplay(const std::string & bag_fname, std::string scan_t
         ROS_WARN_STREAM("Dropping old scan: " << s_queue.front().second);
         s_queue.pop();
       }
-      // ignoring un-timestamped tf data 
+      // ignoring un-timestamped tf data
     }
 
     // Only process a scan if it has tf data
@@ -365,15 +365,19 @@ SlamGMapping::~SlamGMapping()
     delete scan_filter_sub_;
 }
 
-bool
-SlamGMapping::getOdomPose(GMapping::OrientedPoint& gmap_pose, const ros::Time& t)
+// 返回 laser 中心 在 odom坐标系 中的位置
+bool SlamGMapping::getOdomPose(GMapping::OrientedPoint& gmap_pose, const ros::Time& t)
 {
   // Get the pose of the centered laser at the right time
+  // 头文件定义 tf::Stamped<tf::Pose> centered_laser_pose_;
   centered_laser_pose_.stamp_ = t;
   // Get the laser's pose that is centered
   tf::Stamped<tf::Transform> odom_pose;
   try
   {
+    // tf_ 是一个 tf::TransformListener
+    // transformPose 参数：目标frame，输入PoseStamped，输出 PoseStamped
+    // 也就是获取 laser 中心 在 odom坐标系 中的位置坐标
     tf_.transformPose(odom_frame_, centered_laser_pose_, odom_pose);
   }
   catch(tf::TransformException e)
@@ -383,38 +387,40 @@ SlamGMapping::getOdomPose(GMapping::OrientedPoint& gmap_pose, const ros::Time& t
   }
   double yaw = tf::getYaw(odom_pose.getRotation());
 
+  // 把 tf::Stamped<tf::Transform> 类型 转换成 简单的  GMapping::OrientedPoint 类型
   gmap_pose = GMapping::OrientedPoint(odom_pose.getOrigin().x(),
                                       odom_pose.getOrigin().y(),
                                       yaw);
   return true;
 }
 
-bool
-SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
+bool SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
 {
   laser_frame_ = scan.header.frame_id;
+
   // Get the laser's pose, relative to base.
   tf::Stamped<tf::Pose> ident;
   tf::Stamped<tf::Transform> laser_pose;
+
   ident.setIdentity();
   ident.frame_id_ = laser_frame_;
-  ident.stamp_ = scan.header.stamp;
+  ident.stamp_ = scan.header.stamp; // 这样构造出来，pose 都是 0 0 0 ？
+
   try
-  {
+  { // 计算 对于 laser 的 0 0 0 ，对应 base_frame 是多少
     tf_.transformPose(base_frame_, ident, laser_pose);
   }
   catch(tf::TransformException e)
   {
-    ROS_WARN("Failed to compute laser pose, aborting initialization (%s)",
-             e.what());
+    ROS_WARN("Failed to compute laser pose, aborting initialization (%s)", e.what());
     return false;
   }
 
   // create a point 1m above the laser position and transform it into the laser-frame
   tf::Vector3 v;
   v.setValue(0, 0, 1 + laser_pose.getOrigin().z());
-  tf::Stamped<tf::Vector3> up(v, scan.header.stamp,
-                                      base_frame_);
+  tf::Stamped<tf::Vector3> up(v, scan.header.stamp,base_frame_);
+
   try
   {
     tf_.transformPoint(laser_frame_, up, up);
@@ -426,7 +432,7 @@ SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
              e.what());
     return false;
   }
-  
+
   // gmapping doesnt take roll or pitch into account. So check for correct sensor alignment.
   if (fabs(fabs(up.z()) - 1) > 0.001)
   {
@@ -458,6 +464,7 @@ SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
   laser_angles_.resize(scan.ranges.size());
   // Make sure angles are started so that they are centered
   double theta = - std::fabs(scan.angle_min - scan.angle_max)/2;
+
   for(unsigned int i=0; i<scan.ranges.size(); ++i)
   {
     laser_angles_[i]=theta;
@@ -469,6 +476,7 @@ SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
   ROS_DEBUG("Laser angles in top-down centered laser-frame: min: %.3f max: %.3f inc: %.3f", laser_angles_.front(),
             laser_angles_.back(), std::fabs(scan.angle_increment));
 
+  // OrientedPoint 就是角度+point  point 是单纯 point
   GMapping::OrientedPoint gmap_pose(0, 0, 0);
 
   // setting maxRange and maxUrange here so we can set a reasonable default
@@ -491,8 +499,11 @@ SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
                                          maxRange_);
   ROS_ASSERT(gsp_laser_);
 
+  // Sensormap 就是字符串和sensor指针的  keyvelue对。
+  // typedef std::map<std::string, Sensor*> SensorMap;
   GMapping::SensorMap smap;
-  smap.insert(make_pair(gsp_laser_->getName(), gsp_laser_));
+  smap.insert(make_pair(gsp_laser_->getName(), gsp_laser_));    // 加入新的一对
+
   gsp_->setSensorMap(smap);
 
   gsp_odom_ = new GMapping::OdometrySensor(odom_frame_);
@@ -500,7 +511,7 @@ SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
 
 
   /// @todo Expose setting an initial pose
-  GMapping::OrientedPoint initialPose;
+  GMapping::OrientedPoint initialPose;  // 机体 在 odom 中的坐标？
   if(!getOdomPose(initialPose, scan.header.stamp))
   {
     ROS_WARN("Unable to determine inital pose of laser! Starting point will be set to zero.");
@@ -515,8 +526,10 @@ SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
   gsp_->setUpdateDistances(linearUpdate_, angularUpdate_, resampleThreshold_);
   gsp_->setUpdatePeriod(temporalUpdate_);
   gsp_->setgenerateMap(false);
+
   gsp_->GridSlamProcessor::init(particles_, xmin_, ymin_, xmax_, ymax_,
-                                delta_, initialPose);
+                                delta_, initialPose);   // 重要函数
+
   gsp_->setllsamplerange(llsamplerange_);
   gsp_->setllsamplestep(llsamplestep_);
   /// @todo Check these calls; in the gmapping gui, they use
@@ -534,17 +547,22 @@ SlamGMapping::initMapper(const sensor_msgs::LaserScan& scan)
   return true;
 }
 
-bool
-SlamGMapping::addScan(const sensor_msgs::LaserScan& scan, GMapping::OrientedPoint& gmap_pose)
+bool SlamGMapping::addScan(const sensor_msgs::LaserScan& scan,  // 输入 scan
+                           GMapping::OrientedPoint& gmap_pose)  // 输出 laser 在 odom坐标系的pose
+// 修正后的 pose 通过 gsp-> 的方式获得
 {
+  // 获取 laser 中心 在 odom坐标系 中的位置 到 gmap_pose 中
   if(!getOdomPose(gmap_pose, scan.header.stamp))
      return false;
-  
+
+  // 如果输入数据大小 和 预设 大小 不一样，也不行
   if(scan.ranges.size() != gsp_laser_beam_count_)
     return false;
 
   // GMapping wants an array of doubles...
+  // 把 scan 中数据提取到 ranges_double 中
   double* ranges_double = new double[scan.ranges.size()];
+
   // If the angle increment is negative, we have to invert the order of the readings.
   if (do_reverse_range_)
   {
@@ -558,11 +576,12 @@ SlamGMapping::addScan(const sensor_msgs::LaserScan& scan, GMapping::OrientedPoin
       else
         ranges_double[i] = (double)scan.ranges[num_ranges - i - 1];
     }
-  } else 
+  } else
   {
     for(unsigned int i=0; i < scan.ranges.size(); i++)
     {
       // Must filter out short readings, because the mapper won't
+      // 过滤掉过短的 数据。如果数据小于最小距离，把它设置成 最大距离？为啥
       if(scan.ranges[i] < scan.range_min)
         ranges_double[i] = (double)scan.range_max;
       else
@@ -570,16 +589,17 @@ SlamGMapping::addScan(const sensor_msgs::LaserScan& scan, GMapping::OrientedPoin
     }
   }
 
-  GMapping::RangeReading reading(scan.ranges.size(),
-                                 ranges_double,
-                                 gsp_laser_,
-                                 scan.header.stamp.toSec());
+  // 把上面的数据，再封装成 reading 类型
+  GMapping::RangeReading reading(scan.ranges.size(),    // reading 类型需要知道 有多少个激光点
+                                 ranges_double,         // 所有激光数据
+                                 gsp_laser_,            //
+                                 scan.header.stamp.toSec());    // 数据时间
 
   // ...but it deep copies them in RangeReading constructor, so we don't
   // need to keep our array around.
   delete[] ranges_double;
 
-  reading.setPose(gmap_pose);
+  reading.setPose(gmap_pose);   // 数据获取的位置，laser 在 odom坐标系 中的位置
 
   /*
   ROS_DEBUG("scanpose (%.3f): %.3f %.3f %.3f\n",
@@ -590,12 +610,18 @@ SlamGMapping::addScan(const sensor_msgs::LaserScan& scan, GMapping::OrientedPoin
             */
   ROS_DEBUG("processing scan");
 
-  return gsp_->processScan(reading);
+  return gsp_->processScan(reading);    // 又是一个重要函数
 }
 
-void
-SlamGMapping::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
+void SlamGMapping::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
 {
+  struct timeval tv1;
+  struct timeval tv2;
+  unsigned long long mseconds1;
+  unsigned long long mseconds2;
+  gettimeofday(&tv1,NULL);
+  mseconds1 = tv1.tv_sec * 1000 + tv1.tv_usec / 1000;
+
   laser_count_++;
   if ((laser_count_ % throttle_scans_) != 0)
     return;
@@ -605,14 +631,14 @@ SlamGMapping::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
   // We can't initialize the mapper until we've got the first scan
   if(!got_first_scan_)
   {
-    if(!initMapper(*scan))
+    if(!initMapper(*scan))  // 初始化了 gsp-> 初始化了若干粒子，存入地图 权重 初始位置等
       return;
     got_first_scan_ = true;
   }
 
   GMapping::OrientedPoint odom_pose;
 
-  if(addScan(*scan, odom_pose))
+  if(addScan(*scan, odom_pose)) // addScan 又是一个重点函数
   {
     ROS_DEBUG("scan processed");
 
@@ -636,6 +662,14 @@ SlamGMapping::laserCallback(const sensor_msgs::LaserScan::ConstPtr& scan)
     }
   } else
     ROS_DEBUG("cannot process scan");
+
+    gettimeofday(&tv2,NULL);
+    mseconds2 = tv2.tv_sec * 1000 + tv2.tv_usec / 1000;
+    int ms = mseconds2-mseconds1;
+    printf(".");
+    if(ms >= 10)
+      printf("\n ms per laserCallback: %d \n",ms);
+
 }
 
 double
@@ -689,13 +723,13 @@ SlamGMapping::updateMap(const sensor_msgs::LaserScan& scan)
     map_.map.info.origin.orientation.y = 0.0;
     map_.map.info.origin.orientation.z = 0.0;
     map_.map.info.origin.orientation.w = 1.0;
-  } 
+  }
 
   GMapping::Point center;
   center.x=(xmin_ + xmax_) / 2.0;
   center.y=(ymin_ + ymax_) / 2.0;
 
-  GMapping::ScanMatcherMap smap(center, xmin_, ymin_, xmax_, ymax_, 
+  GMapping::ScanMatcherMap smap(center, xmin_, ymin_, xmax_, ymax_,
                                 delta_);
 
   ROS_DEBUG("Trajectory tree:");
@@ -726,7 +760,7 @@ SlamGMapping::updateMap(const sensor_msgs::LaserScan& scan)
     GMapping::Point wmax = smap.map2world(GMapping::IntPoint(smap.getMapSizeX(), smap.getMapSizeY()));
     xmin_ = wmin.x; ymin_ = wmin.y;
     xmax_ = wmax.x; ymax_ = wmax.y;
-    
+
     ROS_DEBUG("map size is now %dx%d pixels (%f,%f)-(%f, %f)", smap.getMapSizeX(), smap.getMapSizeY(),
               xmin_, ymin_, xmax_, ymax_);
 
@@ -768,7 +802,7 @@ SlamGMapping::updateMap(const sensor_msgs::LaserScan& scan)
   sstm_.publish(map_.map.info);
 }
 
-bool 
+bool
 SlamGMapping::mapCallback(nav_msgs::GetMap::Request  &req,
                           nav_msgs::GetMap::Response &res)
 {
